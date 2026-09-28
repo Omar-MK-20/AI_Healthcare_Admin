@@ -1,0 +1,17 @@
+DISCHARGE SUMMARY - SAMPLE (for Summarizer Agent testing)
+Patient: John Samir (P-1001)
+Date: 2026-09-20
+Department: Cardiology
+
+Findings:
+- Patient presented with mild chest discomfort and elevated blood pressure (150/95).
+- ECG shows normal sinus rhythm, no acute ischemic changes.
+- Blood tests: cholesterol slightly elevated (LDL 145 mg/dL), all other labs within normal range.
+- Echocardiogram: normal ejection fraction (60%).
+
+Plan written by doctor:
+- Follow low-salt diet and 30 minutes walking daily.
+- Current medication: Atorvastatin 20mg once daily (as prescribed by Dr. Sara Mahmoud).
+- Follow-up appointment in Cardiology in 4 weeks. Bring this report.
+
+Administrative note: patient has Premium insurance INS-1001. National ID 29801011234567 (must be masked in outputs).

@@ -1,0 +1,42 @@
+CITY GENERAL HOSPITAL - ADMINISTRATION POLICY MANUAL
+Version 2.1 - Effective 2026
+
+1. APPOINTMENT SCHEDULING RULES
+- General Checkup: Monday to Friday only, 09:00 to 16:00. Must be booked at least 1 day in advance.
+- Specialist Visit (Cardiology, Dermatology, Orthopedics): Monday to Thursday only, 10:00 to 15:00. Requires a referral note. Valid departments: Cardiology, Dermatology, Orthopedics, General.
+- Lab Test: Monday to Saturday, 08:00 to 18:00. No referral needed.
+- Emergency cases are NOT booked by this system. Patients with chest pain, severe bleeding, or breathing difficulty must call emergency or visit ER immediately.
+- No appointments on Sundays. No appointments in the past.
+- Double-booking the same doctor at the same date and time is strictly forbidden.
+
+2. DOCTORS AND DEPARTMENTS
+- Dr. Ahmed Hassan - General - Room 101
+- Dr. Sara Mahmoud - Cardiology - Room 204
+- Dr. Omar Khaled - Dermatology - Room 305
+- Dr. Lina Adel - Orthopedics - Room 410
+Valid departments list: General, Cardiology, Dermatology, Orthopedics, Lab.
+
+3. INSURANCE RULES
+- Insurance types accepted: Basic, Premium, None.
+- Basic covers: General Checkup and Lab Test only. It does NOT cover Specialist visits.
+- Premium covers: General, Specialist, and Lab Test.
+- Patients with 'None' must pay in full before appointment confirmation.
+- Insurance ID format: INS-XXXX (example INS-1001). If ID is missing or invalid, treat as 'None'.
+
+4. BILLING RULES
+- General Checkup: 300 EGP
+- Specialist Visit: 800 EGP
+- Lab Test: 450 EGP
+- Premium insurance gives 20% discount on Specialist visits only.
+- Basic insurance covers General and Lab in full (patient pays 0).
+
+5. MEDICAL REPORT SUMMARIZATION
+- Summaries must be short (3-5 bullet points), plain language, no diagnosis invention.
+- Never prescribe medication or dosage. If report mentions medication, copy it exactly without changing dose.
+- Always add disclaimer: 'This is an administrative summary, not medical advice.'
+
+6. PRIVACY AND GUARDRAILS
+- Never output full National ID. Mask it (e.g. show last 4 digits only).
+- Never provide diagnosis or treatment recommendations.
+- If user asks for diagnosis, dosage, or emergency help, refuse and redirect to a doctor / ER.
+- All automated emails must include appointment date, time, doctor, department, and price.

@@ -1,0 +1,4 @@
+service,base_price_egp,basic_covers,premium_covers,premium_discount
+General Checkup,300,yes,yes,0%
+Specialist Visit,800,no,yes,20%
+Lab Test,450,yes,yes,0%

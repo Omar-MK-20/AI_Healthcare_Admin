@@ -1,0 +1,18 @@
+# Session 9 (Gradio + RAG) + Session 10 (Quantization + Guardrails + Deployment) stack
+transformers>=4.43
+accelerate>=0.33
+bitsandbytes>=0.43
+sentence-transformers
+langchain
+langchain-community
+faiss-cpu
+pypdf
+gradio>=4.0
+streamlit
+fastapi
+uvicorn
+pyngrok
+pandas
+fpdf2
+youtube-transcript-api
+python-multipart

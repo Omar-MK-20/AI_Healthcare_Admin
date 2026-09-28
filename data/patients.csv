@@ -1,0 +1,6 @@
+patient_id,full_name,email,insurance_type,insurance_id,phone
+P-1001,John Samir,john.samir@example.com,Premium,INS-1001,01001234567
+P-1002,Mariam Adel,mariam.adel@example.com,Basic,INS-1002,01007654321
+P-1003,Omar Farouk,omar.farouk@example.com,None,,01009876543
+P-1004,Sara Nabil,sara.nabil@example.com,Premium,INS-1004,01001112222
+P-1005,Karim Hani,karim.hani@example.com,Basic,INS-1005,01003334444
