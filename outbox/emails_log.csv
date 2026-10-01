@@ -1,0 +1,7 @@
+timestamp,to,subject,file
+20260929_020634,test@example.com,Test,email_20260929_020634_test_example.com.txt
+20260929_020716,test@example.com,Test,email_20260929_020716_test_example.com.txt
+20260929_020814,test@example.com,Test,email_20260929_020814_test_example.com.txt
+20260930_001519,mariam.adel@example.com,Appointment Confirmed,email_20260930_001519_mariam.adel_example.com.txt
+20260930_200139,john.samir@example.com,Appointment Confirmed,email_20260930_200139_john.samir_example.com.txt
+20261001_235737,john.samir@example.com,Appointment Confirmed,email_20261001_235737_john.samir_example.com.txt

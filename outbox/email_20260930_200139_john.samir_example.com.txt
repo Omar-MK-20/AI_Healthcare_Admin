@@ -1,0 +1,8 @@
+To: john.samir@example.com
+Subject: Appointment Confirmed
+
+Dear P-1001,
+Your appointment is confirmed:
+{'appointment_id': 'A-0003', 'patient_id': 'P-1001', 'date': '2026-10-05', 'time': '11:00', 'doctor': 'Dr. Sara Mahmoud', 'department': 'Cardiology', 'status': 'confirmed'}
+Billing: {'service': 'Specialist Visit', 'base': 800, 'patient_pays': 640, 'note': 'Premium 20% discount on Specialist.'}
+Insurance: Premium

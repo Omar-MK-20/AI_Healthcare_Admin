@@ -10,6 +10,9 @@ GUARDRAILS (emergency redirect, no-diagnosis, PII mask)   [Session 10]
    │
    ▼
 ORCHESTRATOR (router)
+   ├── Booking ──► deterministic NL parser (dept/doctor/date/time/patient, no LLM needed)
+   │                → fuzzy patient match → policy/billing/booking → natural reply
+   │                → falls back to LLM JSON only when details are missing
    ├── Policy Q&A ──► Agent 1 RAG (PDF → FAISS/MiniLM → context) ──► answer + citation
    ├── Booking ──► Agent 1 context → LLM JSON → valid_date/time → validate_policy
    │                → Agent 5 Insurance (patients.csv) ┐ parallel
@@ -24,7 +27,9 @@ MEMORY (deque maxlen=6) + EVAL LOG (task, ok, latency) → Dashboard
 
 ## Models & optimization (Session 10)
 
-- LLM: `Qwen/Qwen2.5-7B-Instruct`, 4-bit BitsAndBytes (`bnb_config`),
+- LLM: `Qwen/Qwen3-1.7B` (thinking disabled, strict-JSON mode) —
+  4-bit BitsAndBytes (`bnb_config`) on GPU, full weights on CPU (`device_map="cpu"`),
+  so it runs with or without a GPU.
   `float16` compute — same as `Quantization.ipynb`.
 - Embeddings: `sentence-transformers/all-MiniLM-L6-v2`, FAISS retriever.
 - Deployment: Gradio `share=True` (Session 9) OR FastAPI + Ngrok

@@ -1,5 +1,5 @@
 # Session 9 (Gradio + RAG) + Session 10 (Quantization + Guardrails + Deployment) stack
-transformers>=4.43
+transformers>=4.51  # Qwen3 support
 accelerate>=0.33
 bitsandbytes>=0.43
 sentence-transformers

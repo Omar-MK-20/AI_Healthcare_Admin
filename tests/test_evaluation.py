@@ -10,7 +10,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from app import (
     valid_date, valid_time, validate_policy, appointment_exists,
     billing_agent, insurance_agent, guardrail_check, mask_pii,
-    extract_json,
+    extract_json, add_patient, parse_booking_request, resolve_patient,
+    complete_booking, orchestrator, parse_natural_date, parse_natural_time,
 )
 
 def test_validators():
@@ -60,3 +61,70 @@ def test_extract_json():
 
 def test_no_double_booking_seed():
     assert appointment_exists("Dr. Ahmed Hassan", "2026-10-05", "10:00") is True
+
+def _seed_csv(tmp_path):
+    p = tmp_path / "patients.csv"
+    p.write_text(
+        "patient_id,full_name,email,insurance_type,insurance_id,phone\n"
+        "P-1001,John Samir,john.samir@example.com,Premium,INS-1001,01001234567\n"
+    )
+    return str(p)
+
+def test_add_patient_ok(tmp_path):
+    csv_path = _seed_csv(tmp_path)
+    ok, msg = add_patient("Laila Hassan", "laila.h@example.com",
+                          "Premium", "INS-1006", "01005556666", csv_path=csv_path)
+    assert ok is True and "P-1002" in msg
+    # new patient is immediately lookable (insurance agent reads the same CSV)
+    import pandas as pd
+    df = pd.read_csv(csv_path, dtype=str)
+    assert len(df) == 2
+
+def test_add_patient_duplicate_email(tmp_path):
+    csv_path = _seed_csv(tmp_path)
+    ok, msg = add_patient("Someone Else", "JOHN.samir@example.com",
+                          "None", "", "", csv_path=csv_path)
+    assert ok is False and "already exists" in msg
+
+def test_add_patient_bad_insurance_id(tmp_path):
+    csv_path = _seed_csv(tmp_path)
+    ok, _ = add_patient("Bad Ins", "bad@example.com", "Basic", "XYZ", "", csv_path=csv_path)
+    assert ok is False
+    ok, _ = add_patient("Bad Mail", "not-an-email", "None", "", "", csv_path=csv_path)
+    assert ok is False
+
+def test_parse_booking_full_sentence():
+    p = parse_booking_request(
+        "Book Cardiology with Dr. Sara Mahmoud for Omar on 2026-10-15 at 9:00")
+    assert p["department"] == "Cardiology"
+    assert p["doctor"] == "Dr. Sara Mahmoud"
+    assert p["date"] == "2026-10-15"
+    assert p["time"] == "09:00"
+    assert p["patient_mention"] == "Omar"
+
+def test_parse_relative_datetime():
+    from datetime import date as _d, timedelta as _td
+    assert parse_natural_date("book for tomorrow") == (_d.today() + _td(days=1)).isoformat()
+    assert parse_natural_time("at 2:30pm") == "14:30"
+    assert parse_natural_time("at 9") == "09:00"
+
+def test_resolve_patient_fuzzy():
+    status, pid, name, _ = resolve_patient("Farouk")
+    assert status == "ok" and pid == "P-1003" and "Omar" in name
+
+def test_resolve_patient_ambiguous():
+    # "Omar" matches more than one record -> must ask, never guess
+    status, _, _, note = resolve_patient("Omar")
+    assert status == "ambiguous" and "Which one" in note
+
+def test_resolve_patient_unknown():
+    status, _, _, note = resolve_patient("Nobody Here")
+    assert status == "notfound" and "Add Patient" in note
+
+def test_booking_example_gets_natural_reply_not_policy_dump():
+    # Regression test: the exact reported case. 9:00 is outside Cardiology
+    # hours, so it must refuse NATURALLY (with hours + alternative) —
+    # never dump the policy PDF. No LLM needed (deterministic route).
+    r = orchestrator("Book Cardiology with Dr. Sara Mahmoud for Omar Farouk on 2026-10-15 at 9:00")
+    assert "policy PDF" not in r
+    assert "Can't book that slot" in r and "10:00" in r

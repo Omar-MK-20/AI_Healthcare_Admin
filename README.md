@@ -19,14 +19,14 @@ python -m pytest tests/ -v     # Evaluation tests
 ```
 
 Upload `healthcare_assistant.ipynb` to Colab + Kaggle for the GPU run
-(Qwen2.5-7B-Instruct 4-bit needs GPU).
+(Qwen3-1.7B runs 4-bit on GPU, full weights on CPU).
 
 ## 2. Objectives mapping
 
 | # | Objective | Where |
 |---|-----------|-------|
 | 1 | Data Retrieval | `hospital_policy.pdf` via PyPDFLoader + FAISS RAG (Agent 1); `patients.csv`, `billing.csv`, `appointments_seed.csv` via pandas (Agents 4–5, stands in for Google Sheets/DB/API) |
-| 2 | Processing & Summarization | Qwen2.5-7B-Instruct 4-bit (`generate()`), Summarizer Agent (Agent 3) |
+| 2 | Processing & Summarization | Qwen3-1.7B-Instruct, thinking disabled (`generate()`), Summarizer Agent (Agent 3) |
 | 3 | Automated Actions | `send_confirmation_email()` → `outbox/`, `generate_visit_report()`, Dashboard |
 | 4 | Workflow Orchestration | `orchestrator()` routes RAG → Scheduler → Billing+Insurance → Email/Report (sequential + parallel lookups) |
 | 5 | Presentation | `ARCHITECTURE.md` + `PRESENTATION_SCRIPT.md` (face-cam video guide) |
@@ -40,6 +40,9 @@ Upload `healthcare_assistant.ipynb` to Colab + Kaggle for the GPU run
 4. **Billing Agent** — CSV price lookup + discount logic.
 5. **Insurance Claim Agent** — CSV patient lookup + INS-XXXX validation.
 + **Orchestrator** — guardrails → routing → pipeline → email/report → eval log.
+- Patient registration: ➕ Add Patient tab (or chat "Add patient …") appends to
+  `patients.csv` with validation (email format, unique email/insurance ID,
+  auto `P-XXXX` ID) — new patients are immediately usable for booking.
 
 ## 4. Session 9 / 10 references used
 
