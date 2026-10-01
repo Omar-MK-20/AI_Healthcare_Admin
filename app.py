@@ -120,8 +120,8 @@ bnb_config = BitsAndBytesConfig(
     bnb_4bit_compute_dtype=torch.float16,
 )
 
-tokenizer = None
-model = None
+# tokenizer = None
+# model = None
 
 def load_model():
     global tokenizer, model
@@ -151,7 +151,7 @@ def generate(prompt, max_new_tokens=120):
             **inputs,
             max_new_tokens=max_new_tokens,
             do_sample=True,
-            temperature=0.7,
+            temperature=0.1,
             top_p=0.9,
             pad_token_id=tokenizer.eos_token_id,
         )
