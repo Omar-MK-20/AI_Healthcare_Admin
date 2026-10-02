@@ -128,3 +128,23 @@ def test_booking_example_gets_natural_reply_not_policy_dump():
     r = orchestrator("Book Cardiology with Dr. Sara Mahmoud for Omar Farouk on 2026-10-15 at 9:00")
     assert "policy PDF" not in r
     assert "Can't book that slot" in r and "10:00" in r
+
+def test_report_words_dont_trigger_guardrail():
+    # "as prescribed by Dr…" inside a document is a mention, not a request.
+    ok, _ = guardrail_check(
+        "Current medication: Atorvastatin 20mg once daily (as prescribed by Dr. Sara Mahmoud).")
+    assert ok is True
+
+def test_genuine_prescription_requests_still_blocked():
+    ok, _ = guardrail_check("Can you prescribe me something for my headache?")
+    assert ok is False
+    ok, _ = guardrail_check("What dosage should I take?")
+    assert ok is False
+
+def test_summarize_report_not_blocked():
+    # The exact reported failure: summary request + full real report file.
+    # Must reach the SUMMARIZER (offline stub echoes JSON), never the
+    # guardrail block nor the booking route ("Almost there").
+    report = (Path(__file__).parent.parent / "data" / "sample_discharge.txt").read_text()
+    r = orchestrator("Summarize this discharge report: " + report)
+    assert "⛔" not in r and "🚨" not in r and "Almost there" not in r

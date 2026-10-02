@@ -1,7 +1,0 @@
-CITY GENERAL HOSPITAL - VISIT REPORT
-{'appointment_id': 'A-0003', 'patient_id': 'P-1003', 'date': '2026-10-14', 'time': '10:00', 'doctor': 'Dr. Ahmed Hassan', 'department': 'General', 'status': 'confirmed'}
-
-BILLING: {'patient_pays': 300}
-INSURANCE: None
-
-Disclaimer: administrative summary, not medical advice.
