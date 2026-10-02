@@ -166,3 +166,11 @@ def test_patients_table_masks_phones():
         "patient_id", "full_name", "email", "insurance_type", "insurance_id", "phone"]
     assert "01001234567" not in " ".join(df["phone"].tolist())  # masked
     assert "P-1001" in df["patient_id"].tolist()
+
+def test_appointments_table_shows_seeds_and_status():
+    from app import appointments_table
+    df = appointments_table()
+    assert list(df.columns) == ["appointment_id", "patient_id", "date", "time",
+                                "doctor", "department", "status"]
+    assert "A-0001" in df["appointment_id"].tolist()
+    assert set(df["status"].tolist()) <= {"confirmed"}

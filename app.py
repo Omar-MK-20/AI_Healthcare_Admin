@@ -932,6 +932,16 @@ def patients_table():
     out["phone"] = out["phone"].apply(lambda p: mask_pii(str(p)) if str(p) else "")
     return out
 
+APPT_COLUMNS = ["appointment_id", "patient_id", "date", "time",
+                "doctor", "department", "status"]
+
+def appointments_table():
+    """All scheduled appointments (seeds + newly booked) with status."""
+    if not scheduled_appointments:
+        return pd.DataFrame(columns=APPT_COLUMNS)
+    df = pd.DataFrame(scheduled_appointments)
+    return df[[c for c in APPT_COLUMNS if c in df.columns]]
+
 # ---------------- Gradio UI ------------------------------------------
 def build_ui():
     with gr.Blocks(title="🏥 AI Healthcare Administration Assistant") as demo:
@@ -980,6 +990,11 @@ def build_ui():
                         "New registrations appear here after Refresh.")
             ptable = gr.Dataframe(value=patients_table, label="Patients")
             gr.Button("Refresh").click(patients_table, outputs=ptable)
+        with gr.Tab("📅 All Appointments"):
+            gr.Markdown("Seed appointments plus everything booked this session, with status. "
+                        "New bookings appear here after Refresh.")
+            atable = gr.Dataframe(value=appointments_table, label="Appointments")
+            gr.Button("Refresh").click(appointments_table, outputs=atable)
         with gr.Tab("📝 Summarize Report"):
             rep = gr.Textbox(label="Paste discharge / lab report", lines=8)
             sout = gr.Textbox(label="Summary")
