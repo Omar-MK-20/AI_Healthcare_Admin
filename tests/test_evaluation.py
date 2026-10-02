@@ -148,3 +148,21 @@ def test_summarize_report_not_blocked():
     report = (Path(__file__).parent.parent / "data" / "sample_discharge.txt").read_text()
     r = orchestrator("Summarize this discharge report: " + report)
     assert "⛔" not in r and "🚨" not in r and "Almost there" not in r
+
+def test_billing_result_is_formatted_markdown():
+    from app import format_billing_insurance
+    bill = billing_agent("Specialist Visit", "Basic")
+    ins = insurance_agent("P-1002")
+    out = format_billing_insurance(bill, ins)
+    assert "{'service'" not in out and "{'ok'" not in out  # no raw dicts
+    assert "### 💳 Billing" in out and "### 🛡 Insurance" in out
+    assert "800 EGP" in out and "Mariam Adel (P-1002)" in out
+    assert "Basic (INS-1002)" in out
+
+def test_patients_table_masks_phones():
+    from app import patients_table
+    df = patients_table()
+    assert len(df) >= 7 and list(df.columns) == [
+        "patient_id", "full_name", "email", "insurance_type", "insurance_id", "phone"]
+    assert "01001234567" not in " ".join(df["phone"].tolist())  # masked
+    assert "P-1001" in df["patient_id"].tolist()

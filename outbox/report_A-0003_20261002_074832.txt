@@ -1,0 +1,7 @@
+CITY GENERAL HOSPITAL - VISIT REPORT
+{'appointment_id': 'A-0003', 'patient_id': 'P-1003', 'date': '2026-10-15', 'time': '11:00', 'doctor': 'Dr. Sara Mahmoud', 'department': 'Cardiology', 'status': 'confirmed'}
+
+BILLING: {'service': 'Specialist Visit', 'base': 800, 'patient_pays': 800, 'note': 'No insurance. Full payment required before confirmation.'}
+INSURANCE: None
+
+Disclaimer: administrative summary, not medical advice.

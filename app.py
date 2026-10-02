@@ -542,6 +542,26 @@ def billing_agent(service_type, insurance_type):
     return {"service": service_type, "base": base, "patient_pays": base,
             "note": "No insurance. Full payment required before confirmation."}
 
+def format_billing_insurance(bill, ins):
+    """Markdown rendering of billing + insurance (no raw dict dumps)."""
+    lines = ["### 💳 Billing",
+             f"- **Service:** {bill.get('service', '-')}",
+             f"- **Base price:** {bill.get('base', '-')} EGP",
+             f"- **You pay:** {bill.get('patient_pays', '-')} EGP",
+             f"- **Note:** {bill.get('note', '')}",
+             ""]
+    if ins.get("ok"):
+        pat = ins.get("patient", {})
+        lines += ["### 🛡 Insurance",
+                  "- **Status:** ✅ verified",
+                  f"- **Type:** {ins.get('insurance_type')} ({ins.get('insurance_id')})",
+                  f"- **Patient:** {pat.get('full_name')} ({pat.get('patient_id')})"]
+    else:
+        lines += ["### 🛡 Insurance",
+                  f"- **Status:** ⚠️ {ins.get('reason', 'not verified')}",
+                  f"- **Treated as:** {ins.get('insurance_type', 'None')}"]
+    return "\n".join(lines)
+
 # ---------------- Agent 5: Insurance Claim Agent ---------------------
 def insurance_agent(patient_id_or_name):
     """Lookup data/patients.csv (stands in for Google Sheets / DB)."""
@@ -818,7 +838,7 @@ def orchestrator(user_input, patient_hint="P-1001", mode="auto"):
         svc = "Specialist Visit" if any(k in low for k in ["specialist", "cardio", "derma", "ortho"]) else (
             "Lab Test" if "lab" in low else "General Checkup")
         bill = billing_agent(svc, ins_type)
-        resp = mask_pii(f"💳 Billing: {bill}\n🛡 Insurance: {ins}")
+        resp = mask_pii(format_billing_insurance(bill, ins))
         eval_log.append({"task": mode, "ok": True,
                          "latency_s": round(time.time()-t0, 2), "note": svc})
         memory.append({"user": user_input, "assistant": resp})
@@ -903,6 +923,15 @@ def dashboard():
             f"- Success rate: {acc:.1f}%\n- Avg latency: {avg_lat:.2f}s\n\n"
             + table)
 
+def patients_table():
+    """All registered patients as a display table (phones masked)."""
+    df, _ = _read_patients()
+    if df.empty:
+        return pd.DataFrame(columns=PATIENT_COLUMNS)
+    out = df[PATIENT_COLUMNS].copy()
+    out["phone"] = out["phone"].apply(lambda p: mask_pii(str(p)) if str(p) else "")
+    return out
+
 # ---------------- Gradio UI ------------------------------------------
 def build_ui():
     with gr.Blocks(title="🏥 AI Healthcare Administration Assistant") as demo:
@@ -946,6 +975,11 @@ def build_ui():
             np_out = gr.Textbox(label="Result")
             gr.Button("Register").click(register_patient_structured,
                                         [np_name, np_email, np_ins, np_ins_id, np_phone], np_out)
+        with gr.Tab("👥 All Patients"):
+            gr.Markdown(f"Registered patients from `patients.csv` (phones masked). "
+                        "New registrations appear here after Refresh.")
+            ptable = gr.Dataframe(value=patients_table, label="Patients")
+            gr.Button("Refresh").click(patients_table, outputs=ptable)
         with gr.Tab("📝 Summarize Report"):
             rep = gr.Textbox(label="Paste discharge / lab report", lines=8)
             sout = gr.Textbox(label="Summary")
@@ -953,7 +987,7 @@ def build_ui():
         with gr.Tab("💳 Billing & Insurance"):
             pat2 = gr.Textbox(label="Patient", value="P-1002")
             q = gr.Textbox(label="Question", value="How much for Specialist Visit with my insurance?")
-            bout = gr.Textbox(label="Result")
+            bout = gr.Markdown(label="Result")
             gr.Button("Check").click(check_billing, [pat2, q], bout)
         with gr.Tab("📊 Evaluation Dashboard"):
             dout = gr.Markdown()

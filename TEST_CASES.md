@@ -37,11 +37,12 @@ Set **"Acting as patient"** to the value in each case (or leave P-1001).
 **Input:** `Book General Checkup with Dr. Ahmed Hassan for P-1002 on 2026-10-11 at 10:00`
 **Expected:** `❌ Can't book that slot: No appointments on Sundays…` (2026-10-11 is a Sunday)
 
-## 6. Billing by insurance type
+## 6. Billing by insurance type (rendered as Markdown, no raw dicts)
 **Acting as:** `P-1002` (Basic) — **Input:** `How much for a Specialist Visit?`
-**Expected:** `patient_pays: 800`, `Basic does NOT cover Specialist. Full payment.`
+**Expected:** `### 💳 Billing` with `You pay: 800 EGP` + `Basic does NOT cover Specialist`,
+and `### 🛡 Insurance` with `✅ verified`, `Basic (INS-1002)`, `Mariam Adel (P-1002)`.
 **Acting as:** `P-1001` (Premium) — same input.
-**Expected:** `patient_pays: 640`, `Premium 20% discount on Specialist.`
+**Expected:** `You pay: 640 EGP` + `Premium 20% discount`.
 
 ## 7. Policy Q&A (needs model loaded)
 **Input:** `What are the Cardiology hours?`
