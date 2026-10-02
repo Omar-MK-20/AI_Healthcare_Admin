@@ -1,7 +1,7 @@
 # ============================================================
 # AI Healthcare Administration Assistant
 # Final Project - Multi-Agent System
-# Based on: Session 9 (Gradio + RAG) + Session 10 (Quantization,
+# Based on: (Gradio + RAG) + (Quantization,
 #           Guardrails, Evaluation, Deployment via Ngrok)
 #
 # 5 Agents + Orchestrator:
@@ -22,7 +22,7 @@
 # pip install -q langchain langchain-community faiss-cpu pypdf
 # pip install -q transformers accelerate bitsandbytes sentence-transformers gradio pandas fpdf2
 
-# ---------------- Imports (Session 9 style) --------------------------
+# ---------------- Imports --------------------------
 import torch
 import json
 import gradio as gr
@@ -41,13 +41,14 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 
 import pandas as pd
 
+# Project paths: BASE = this folder, DATA = CSVs/policy files, OUTBOX = generated emails/reports.
 BASE = Path(__file__).parent
 DATA = BASE / "data"
 OUTBOX = BASE / "outbox"
 OUTBOX.mkdir(exist_ok=True)
 
-# ---------------- Memory Initialization (Session 9 style) ------------
-memory = deque(maxlen=6)
+# ---------------- Memory Initialization ------------
+memory = deque(maxlen=6)  # short-term chat memory: keeps only the last 6 turns
 
 # Scheduled appointments = our "database" (also seeded from CSV)
 scheduled_appointments = []
@@ -66,9 +67,10 @@ try:
 except Exception as e:
     print("Seed load skipped:", e)
 
-# Evaluation log (Session 9: Evaluation & Debugging + Session 10)
+# Evaluation log (Evaluation & Debugging)
 eval_log = []  # list of dicts: {task, ok, latency_s, note}
 
+# Department → doctors roster (also used to infer department from doctor and vice versa).
 DOCTORS = {
     "General": ["Dr. Ahmed Hassan"],
     "Cardiology": ["Dr. Sara Mahmoud"],
@@ -77,17 +79,20 @@ DOCTORS = {
     "Lab": ["Lab Team"],
 }
 
+# Base prices in EGP (mirrors data/billing.csv; used when the CSV is missing).
 PRICES = {"General Checkup": 300, "Specialist Visit": 800, "Lab Test": 450}
 
-# ---------------- Loading PDF (Session 9 style) ----------------------
+# ---------------- Loading PDF ----------------------
 def load_pdf(path):
+    """Load a PDF file page-by-page into LangChain Documents (Agent 1 input)."""
     loader = PyPDFLoader(str(path))
     docs = loader.load()
     print("PDF Loaded:", len(docs))
     return docs
 
-# ---------------- Retriever + Embeddings (Session 9 style) -----------
+# ---------------- Retriever + Embeddings -----------
 def build_retriever(docs):
+    """Embed documents with MiniLM and index them in FAISS for semantic search."""
     embeddings = HuggingFaceEmbeddings(
         model_name="sentence-transformers/all-MiniLM-L6-v2"
     )
@@ -97,6 +102,11 @@ def build_retriever(docs):
 retriever = None  # built lazily on startup (needs hospital_policy.pdf)
 
 def init_rag():
+    """Build the global policy retriever (run once at startup).
+
+    Uses hospital_policy.pdf when present, otherwise falls back to the .txt
+    so the app still starts before create_sample_data.py is run.
+    """
     global retriever
     pdf_path = DATA / "hospital_policy.pdf"
     txt_path = DATA / "hospital_policy.txt"
@@ -114,8 +124,8 @@ def init_rag():
     retriever = build_retriever(docs)
     return retriever
 
-# ---------------- Model Loading (Session 10 Quantization) ------------
-# Qwen3-4B-Instruct: 4-bit BitsAndBytes on GPU (same as Quantization.ipynb),
+# ---------------- Model Loading (Quantization) ------------
+# Qwen3-1.7B: 4-bit BitsAndBytes on GPU (same as Quantization.ipynb),
 # full-precision on CPU (device_map="cpu") so it runs WITHOUT a GPU.
 # Override with env var:  set HEALTHCARE_MODEL=Qwen/other-model
 import os as _os
@@ -132,13 +142,18 @@ model = None  # set by load_model(); None = offline mode
 model_device = "cpu"  # updated by load_model()
 
 def load_model():
+    """Load Qwen3-1.7B-Instruct: 4-bit quantized on GPU, full weights on CPU.
+
+    Sets the global tokenizer/model/model_device. Never skipped — the CPU
+    path always runs, so chat works with or without a GPU (slower on CPU).
+    """
     global tokenizer, model, model_device
     use_cuda = torch.cuda.is_available()
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     if use_cuda:
-        # GPU path: 4-bit quantization (Session 10 style)
+        # GPU path: 4-bit quantization
         model = AutoModelForCausalLM.from_pretrained(
             model_name,
             device_map="auto",
@@ -161,8 +176,9 @@ def load_model():
     model.eval()
     print(f"Model loaded successfully! ({model_name} on {model_device})")
 
-# ---------------- Generate Function (Session 9 style) ----------------
+# ---------------- Generate Function ----------------
 def build_chat_text(messages):
+    """Render chat messages with the model's chat template (no tokenizing yet)."""
     # Qwen3 is a hybrid thinking model: disable thinking so it returns
     # ONLY the answer (strict JSON), no <think> chains.
     try:
@@ -176,6 +192,11 @@ def build_chat_text(messages):
         )
 
 def generate(prompt, max_new_tokens=120):
+    """Run one LLM completion and return the decoded reply text.
+
+    Uses Qwen3's recommended non-thinking sampling settings. The system
+    message forces strict-JSON output for the scheduler/registration routes.
+    """
     messages = [
         {"role": "system",
          "content": "You are a strict JSON generator. Return ONLY valid JSON."},
@@ -198,11 +219,14 @@ def generate(prompt, max_new_tokens=120):
 
 # A safe offline fallback if model is not loaded (lets UI + tests run)
 def generate_safe(prompt, max_new_tokens=120):
+    """Like generate(), but returns a harmless '{"action": "none"}' JSON stub
+    when no model is loaded, so booking/billing/summarizer routes degrade
+    gracefully instead of crashing."""
     if model is None or tokenizer is None:
         return '{"action": "none"}'
     return generate(prompt, max_new_tokens)
 
-# ---------------- Guardrails (Session 10: Guardrails) ----------------
+# ---------------- Guardrails ----------------
 # Intent-based: only blocks REQUESTS for medical advice, not words merely
 # mentioned inside a pasted report (e.g. "as prescribed by Dr…").
 BLOCKED_PATTERNS = [
@@ -220,11 +244,22 @@ EMERGENCY_KEYWORDS = ["chest pain", "severe bleeding", "can't breathe", "unconsc
 SUMMARY_KEYWORDS = ["summariz", "discharge", "lab report", "report:"]
 
 def is_summary_request(user_input, mode="auto"):
+    """True when the user wants a report summarized (keyword or tab mode).
+
+    Checked BEFORE guardrails and booking routes: a pasted report contains
+    department/doctor/date words that must not be treated as other intents.
+    """
     if mode == "summarize":
         return True
     return any(k in user_input.lower() for k in SUMMARY_KEYWORDS)
 
 def guardrail_check(user_input):
+    """Safety gate: block emergencies and medical-advice requests.
+
+    Returns (allowed: bool, message: str). Runs on the request itself —
+    summarization inputs are exempt (see orchestrator) since a pasted
+    document may legitimately mention medications or symptoms.
+    """
     low = user_input.lower()
     # 1. Emergency redirect (never book, always redirect)
     if any(k in low for k in EMERGENCY_KEYWORDS):
@@ -239,14 +274,16 @@ def guardrail_check(user_input):
     return True, ""
 
 def mask_pii(text):
+    """Mask long digit runs (national IDs, phones), keeping the last 4 digits."""
     # Mask long digit strings (national IDs, phones) except last 4
     def _mask(m):
         s = m.group(0)
         return "*" * max(0, len(s) - 4) + s[-4:]
     return re.sub(r"\b\d{8,}\b", _mask, text)
 
-# ---------------- Validators (Session 9 style) -----------------------
+# ---------------- Validators -----------------------
 def valid_date(date_text):
+    """True for a YYYY-MM-DD date that is today or in the future."""
     try:
         datetime.strptime(date_text, "%Y-%m-%d")
         # no past dates
@@ -257,6 +294,7 @@ def valid_date(date_text):
         return False
 
 def valid_time(time_text):
+    """True for a 24-hour HH:MM time string (e.g. '14:30')."""
     if not re.match(r"^\d{2}:\d{2}$", time_text):
         return False
     try:
@@ -266,6 +304,7 @@ def valid_time(time_text):
         return False
 
 def appointment_exists(doctor, appt_date, appt_time):
+    """Collision check: True if this doctor already has that date+time slot."""
     for a in scheduled_appointments:
         if a["doctor"] == doctor and a["date"] == appt_date and a["time"] == appt_time:
             return True
@@ -312,6 +351,12 @@ _MENTION_STOPWORDS = {"me", "us", "today", "tomorrow", "checkup", "check-up",
                       "general", "lab", "cardiology", "dermatology", "orthopedics"}
 
 def parse_natural_date(text):
+    """Extract a date from free text as YYYY-MM-DD.
+
+    Understands ISO dates ('2026-10-15'), 'today'/'tomorrow', and weekday
+    names ('Monday', 'next Friday' = the one in the following week).
+    Returns None when no date is mentioned.
+    """
     low = text.lower()
     m = re.search(r"\b(\d{4}-\d{2}-\d{2})\b", low)
     if m:
@@ -334,6 +379,11 @@ def parse_natural_date(text):
     return None
 
 def parse_natural_time(text):
+    """Extract a time from free text as 24-hour HH:MM.
+
+    Understands '14:30', '2:30pm', 'at 9am' and bare 'at 9'.
+    Returns None when no time is mentioned.
+    """
     low = text.lower()
     m = re.search(r"\b(\d{1,2}):(\d{2})\s*(am|pm)?\b", low)
     if m:
@@ -361,6 +411,11 @@ def parse_natural_time(text):
     return None
 
 def find_doctor(text):
+    """Match a doctor mention to the canonical 'Dr. First Last' + department.
+
+    Tries full name, then 'Dr. <LastName>', then first name. Returns
+    (doctor_name_or_None, department_or_None); department comes from DOCTORS.
+    """
     low = text.lower()
     all_docs = [(dept, d) for dept, ds in DOCTORS.items()
                 for d in ds if d != "Lab Team"]
@@ -378,6 +433,10 @@ def find_doctor(text):
     return None, None
 
 def find_department(text):
+    """Match a department keyword ('cardio…', 'checkup', 'lab test') canonically.
+
+    Longer keywords win ('lab test' beats 'lab'). Returns None if absent.
+    """
     low = text.lower()
     for kw in sorted(DEPT_KEYWORDS, key=len, reverse=True):
         if re.search(r"\b" + re.escape(kw) + r"\b", low):
@@ -385,6 +444,8 @@ def find_department(text):
     return None
 
 def extract_patient_mention(text):
+    """Pull the 'who' out of a booking sentence: a P-XXXX id or the name after
+    'for' ('…for Omar on 2026-10-15…' → 'Omar'). Ignores date/time words."""
     m = re.search(r"\bP-\d+\b", text)
     if m:
         return m.group(0)
@@ -397,6 +458,12 @@ def extract_patient_mention(text):
     return None
 
 def parse_booking_request(text):
+    """Split a booking sentence into {date, time, doctor, department,
+    patient_mention} (None for anything not mentioned).
+
+    Fills gaps by inference: department from doctor and vice versa
+    ('Lab' always maps to 'Lab Team').
+    """
     dept = find_department(text)
     doc, doc_dept = find_doctor(text)
     if dept is None and doc_dept:
@@ -412,6 +479,11 @@ def parse_booking_request(text):
             "patient_mention": extract_patient_mention(text)}
 
 def booking_signals(parsed):
+    """Count how many booking fields were extracted (0–5).
+
+    The orchestrator treats 2+ signals as a booking attempt even without
+    trigger words like 'book'.
+    """
     return sum(1 for v in parsed.values() if v)
 
 def resolve_patient(mention, patient_hint="P-1001"):
@@ -497,8 +569,13 @@ def complete_booking(appt_date, appt_time, doctor, department, patient_id, patie
             f"💳 {pay_text}\n"
             "📧 Confirmation email + visit report saved.")
 
-# ---------------- Extract JSON Block (Session 9 style) ---------------
+# ---------------- Extract JSON Block ---------------
 def extract_json(text):
+    """Pull the first {...} JSON object out of raw LLM output.
+
+    Strips ```json fences first. Returns the parsed dict, or None (with a
+    debug print) when no valid JSON is found.
+    """
     try:
         text = text.replace("```json", "").replace("```", "")
         start = text.find("{")
@@ -587,6 +664,11 @@ PATIENT_CSV = DATA / "patients.csv"
 PATIENT_COLUMNS = ["patient_id", "full_name", "email", "insurance_type", "insurance_id", "phone"]
 
 def _read_patients(csv_path=None):
+    """Read the patient CSV into a DataFrame (empty one if the file is missing).
+
+    csv_path override exists so tests can use an isolated temp file.
+    Returns (dataframe, resolved_path).
+    """
     path = Path(csv_path) if csv_path else PATIENT_CSV
     try:
         df = pd.read_csv(path, dtype=str).fillna("")
@@ -595,6 +677,7 @@ def _read_patients(csv_path=None):
     return df, path
 
 def _next_patient_id(df):
+    """Next free patient id: one above the highest existing P-NNNN (from P-1001)."""
     nums = []
     for pid in df.get("patient_id", []):
         m = re.match(r"^P-(\d+)$", str(pid).strip())
@@ -641,8 +724,13 @@ def add_patient(full_name, email, insurance_type="None", insurance_id="", phone=
     return True, (f"✅ Patient registered! ID: {new_id}\n{name} | {mail} | "
                   f"Insurance: {ins}{f' ({ins_id})' if ins_id else ''}")
 
-# ---------------- API Tool: schedule (Session 9 style) ---------------
+# ---------------- API Tool: schedule ---------------
 def schedule_appointment_api(appt_date, appt_time, doctor, department, patient_id):
+    """Book an appointment after a collision check; returns a ✅/❌ message.
+
+    This is the write side of the in-memory appointment 'database'
+    (seeded from appointments_seed.csv at startup).
+    """
     if appointment_exists(doctor, appt_date, appt_time):
         return "❌ Time slot already booked for this doctor."
     appt_id = f"A-{len(scheduled_appointments)+1:04d}"
@@ -671,6 +759,7 @@ def send_confirmation_email(to_email, subject, body):
     return str(path)
 
 def generate_visit_report(appointment, billing, insurance):
+    """Write a PII-masked visit report .txt into outbox/; returns its path."""
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     path = OUTBOX / f"report_{appointment['appointment_id']}_{ts}.txt"
     body = (
@@ -681,14 +770,16 @@ def generate_visit_report(appointment, billing, insurance):
     path.write_text(mask_pii(body), encoding="utf-8")
     return str(path)
 
-# ---------------- Memory + history (Session 9 style) -----------------
+# ---------------- Memory + history -----------------
 def get_memory_text():
+    """Flatten the recent conversation memory into 'User:/Assistant:' text."""
     text = ""
     for item in memory:
         text += f"User: {item['user']}\nAssistant: {item['assistant']}\n\n"
     return text
 
 def print_chat_history(user_input, context, data, response):
+    """Debug print: query, retrieved context, generated JSON, result + memory."""
     print("\n========== RAG AGENT ==========\n")
     print("User Query:", user_input)
     print("\nRetrieved Context:", (context[:200] if context else "No context found."))
@@ -703,6 +794,7 @@ def print_chat_history(user_input, context, data, response):
             print(f"Conversation {i}\nUser      : {item['user']}\nAssistant : {item['assistant']}\n" + "-" * 50)
 
 def print_scheduled_appointments():
+    """Debug print of every appointment currently in memory."""
     print("\n========== SCHEDULED APPOINTMENTS ==========\n")
     if not scheduled_appointments:
         print("No appointments scheduled.")
@@ -710,8 +802,10 @@ def print_scheduled_appointments():
     for i, a in enumerate(scheduled_appointments, start=1):
         print(f"Appointment {i}\n{a}\n" + "-" * 50)
 
-# ---------------- Prompt Builder (Session 9 style) -------------------
+# ---------------- Prompt Builder -------------------
 def build_prompt(user_input, context):
+    """Build the strict-JSON scheduling prompt: policy + retrieved context +
+    already-booked slots + the user request (LLM fallback path only)."""
     return f"""
 You are an AI hospital scheduling agent.
 
@@ -752,6 +846,13 @@ User:
 
 # ---------------- Main Orchestrator Agent ----------------------------
 def orchestrator(user_input, patient_hint="P-1001", mode="auto"):
+    """Route one user message to the right agent(s) and return the reply.
+
+    Order: guardrails (except for summaries) → registration → summarizer →
+    natural booking → billing/insurance → RAG + LLM fallback. Every turn is
+    appended to memory and timed into eval_log. patient_hint supplies the
+    default patient when none is named; mode forces a route for tab calls.
+    """
     t0 = time.time()
     low = user_input.lower()
     # Summarization requests carry a pasted document: scan only for a genuine
@@ -881,8 +982,11 @@ def orchestrator(user_input, patient_hint="P-1001", mode="auto"):
     print_scheduled_appointments()
     return mask_pii(response)
 
-# ---------------- Gradio Functions (Session 9 style) -----------------
+# ---------------- Gradio Functions -----------------
+# Thin wrappers translating Gradio tab inputs/outputs to orchestrator calls.
 def chat(message, history, patient="P-1001"):
+    """General Chat submit: run the message through the orchestrator and
+    append both sides to the Gradio chatbot history."""
     response = orchestrator(message, patient_hint=(patient or "P-1001"))
     history = history or []
     history.append({"role": "user", "content": message})
@@ -890,26 +994,36 @@ def chat(message, history, patient="P-1001"):
     return "", history
 
 def clear_chat():
+    """Clear button: wipe short-term memory and reset the chat boxes."""
     memory.clear()
     return "", []
 
 def book_structured(patient, department, doctor, appt_date, appt_time):
+    """Book tab: rephrase the form fields as a natural sentence so the single
+    orchestrator booking pipeline handles it (no duplicated logic)."""
     msg = f"Book {department} with {doctor} for {patient} on {appt_date} at {appt_time}."
     return orchestrator(msg, patient_hint=patient)
 
 def summarize_report(report_text):
+    """Summarize tab: force the summarizer route regardless of keywords."""
     return orchestrator("Please summarize this discharge report: " + report_text, mode="summarize")
 
 def check_billing(patient, question):
+    """Billing tab: force the billing/insurance lookup for the given patient."""
     return orchestrator(question, patient_hint=patient, mode="billing")
 
 def register_patient_structured(full_name, email, insurance_type, insurance_id, phone):
+    """Add Patient tab: validate + persist the form, log it for evaluation."""
     ok, msg = add_patient(full_name, email, insurance_type, insurance_id, phone)
     eval_log.append({"task": "add_patient", "ok": ok, "latency_s": 0, "note": "tab"})
     memory.append({"user": f"Register patient {full_name} ({email})", "assistant": msg})
     return mask_pii(msg)
 
 def dashboard():
+    """Evaluation Dashboard: success rate + avg latency + per-task table.
+
+    Falls back to plain text when the optional 'tabulate' package is missing.
+    """
     if not eval_log:
         return "No evaluations yet. Interact with the agents first."
     df = pd.DataFrame(eval_log)
@@ -944,6 +1058,8 @@ def appointments_table():
 
 # ---------------- Gradio UI ------------------------------------------
 def build_ui():
+    """Assemble all Gradio tabs (chat, booking, patients, reports, billing,
+    dashboard) into one Blocks app and return it (launch happens in __main__)."""
     with gr.Blocks(title="🏥 AI Healthcare Administration Assistant") as demo:
         gr.Markdown("# 🏥 AI Healthcare Administration Assistant\n"
                     "Multi-agent: Policy RAG • Scheduler • Summarizer • Billing • Insurance + Email/Report automation")

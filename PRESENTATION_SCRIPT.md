@@ -6,8 +6,8 @@ a multi-agent system that books appointments, answers policy questions,
 summarizes reports, and handles billing and insurance automatically."
 
 ## 1. Architecture (60s, screen: ARCHITECTURE.md)
-- "Five agents plus an orchestrator, following our Session 9 RAG + Gradio pattern
-  and Session 10 quantization, guardrails, and Ngrok deployment."
+- "Five agents plus an orchestrator, following our RAG + Gradio pattern
+  and quantization, guardrails, and Ngrok deployment."
 - Point at pipeline: guardrails → router → RAG/scheduler/summarizer/billing/insurance
   → email + report → evaluation dashboard.
 
@@ -21,9 +21,9 @@ summarizes reports, and handles billing and insurance automatically."
 6. **Dashboard:** Refresh → success rate + latency (Objective 6).
 
 ## 3. Code walkthrough (60s)
-- `app.py`: `bnb_config` 4-bit (Session 10), `build_retriever` (Session 9),
+- `app.py`: `bnb_config` 4-bit , `build_retriever`,
   `extract_json`, `validate_policy`, `orchestrator`, `send_confirmation_email`.
-- `backend_api.py` + `streamlit_app.py`: Session 10 parser.py-style deploy.
+- `backend_api.py` + `streamlit_app.py`: parser.py-style deploy.
 
 ## 4. Testing & close (30s)
 - "11 pytest tests cover validators, policy, billing, insurance, guardrails, PII."

@@ -1,5 +1,5 @@
 # ============================================================
-# streamlit_app.py - Session 10 Projects style (like parser.py)
+# streamlit_app.py - Projects style (like parser.py)
 # Lightweight frontend that talks to backend_api.py via Ngrok.
 # YOU run this yourself:  streamlit run streamlit_app.py
 # ============================================================
@@ -9,7 +9,7 @@ import requests
 st.set_page_config(page_title="Healthcare Admin", page_icon="🏥", layout="centered")
 
 st.markdown("# 🏥 AI Healthcare Administration Assistant")
-st.caption("Streamlit frontend (Session 10 style) → FastAPI backend (Ngrok)")
+st.caption("Streamlit frontend → FastAPI backend (Ngrok)")
 
 API_URL = st.text_input("Backend /book URL", "http://localhost:8000/book")
 API_KEY = st.text_input("API Key", "secret123", type="password")

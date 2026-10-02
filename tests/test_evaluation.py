@@ -1,5 +1,5 @@
 # ============================================================
-# tests/test_evaluation.py - Session 9 (Evaluation & Debugging)
+# tests/test_evaluation.py - (Evaluation & Debugging)
 # YOU run this yourself:  python -m pytest tests/ -v
 # Tests run WITHOUT the LLM (offline-safe) using structured paths.
 # ============================================================

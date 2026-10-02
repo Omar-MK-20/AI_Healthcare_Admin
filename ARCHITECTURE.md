@@ -6,7 +6,7 @@
 User input
    │
    ▼
-GUARDRAILS (emergency redirect, no-diagnosis, PII mask)   [Session 10]
+GUARDRAILS (emergency redirect, no-diagnosis, PII mask)   
    │
    ▼
 ORCHESTRATOR (router)
@@ -25,14 +25,14 @@ ORCHESTRATOR (router)
 MEMORY (deque maxlen=6) + EVAL LOG (task, ok, latency) → Dashboard
 ```
 
-## Models & optimization (Session 10)
+## Models & optimization 
 
 - LLM: `Qwen/Qwen3-1.7B` (thinking disabled, strict-JSON mode) —
   4-bit BitsAndBytes (`bnb_config`) on GPU, full weights on CPU (`device_map="cpu"`),
   so it runs with or without a GPU.
   `float16` compute — same as `Quantization.ipynb`.
 - Embeddings: `sentence-transformers/all-MiniLM-L6-v2`, FAISS retriever.
-- Deployment: Gradio `share=True` (Session 9) OR FastAPI + Ngrok
+- Deployment: Gradio `share=True` OR FastAPI + Ngrok
   (`backend_api.py`, Bearer `secret123`, like `parser.py` backend).
 
 ## Data sources (Objective 1)
@@ -47,7 +47,7 @@ MEMORY (deque maxlen=6) + EVAL LOG (task, ok, latency) → Dashboard
 
 Swap CSV reads for `gspread` / SQL / REST without changing agent interfaces.
 
-## Guardrails (Session 10)
+## Guardrails 
 
 1. Emergency keywords → refuse + redirect to ER.
 2. Diagnosis/prescription/dosage patterns → refuse + offer admin help.
@@ -56,7 +56,7 @@ Swap CSV reads for `gspread` / SQL / REST without changing agent interfaces.
 5. Collision check per doctor+slot.
 6. `mask_pii` on every output; insurance ID regex `^INS-\d+$`.
 
-## Evaluation (Session 9: Evaluation & Debugging)
+## Evaluation (Evaluation & Debugging)
 
 - `tests/test_evaluation.py` (11 tests, offline-safe): validators, policy,
   billing, insurance, guardrails, PII, JSON, seed collision.

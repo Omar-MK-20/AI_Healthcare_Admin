@@ -11,7 +11,7 @@ python create_sample_data.py   # builds data/hospital_policy.pdf
 python app.py                  # Gradio UI (share link for demo)
 ```
 
-Optional paths (Session 10):
+Optional paths:
 ```bash
 python backend_api.py          # FastAPI backend (then expose with ngrok)
 streamlit run streamlit_app.py # Streamlit frontend like parser.py
@@ -44,16 +44,16 @@ Upload `healthcare_assistant.ipynb` to Colab + Kaggle for the GPU run
   `patients.csv` with validation (email format, unique email/insurance ID,
   auto `P-XXXX` ID) — new patients are immediately usable for booking.
 
-## 4. Session 9 / 10 references used
+## 4. references used
 
-- Session 9 (`building web interface + RAG (improved).ipynb`): `load_pdf`, `build_retriever`,
+- (`building web interface + RAG (improved).ipynb`): `load_pdf`, `build_retriever`,
   `generate`, `extract_json`, `valid_date/time`, `validate_policy`, `memory=deque`,
   `chat/clear_chat`, Gradio Blocks UI.
-- Session 10 `Projects/parser.py`: Streamlit frontend + FastAPI + Ngrok + Bearer key pattern
+- `Projects/parser.py`: Streamlit frontend + FastAPI + Ngrok + Bearer key pattern
   → `streamlit_app.py` + `backend_api.py` + `ngrok_client_test.py`.
-- Session 10 `Projects/Summarizer.py`: chunk + summarize pattern → Agent 3.
-- Session 10 `Quantization.ipynb`: BitsAndBytes 4-bit loading → `bnb_config`.
-- Session 10 PPTs (`Guardrails & Optimization`, `Evaluation & Debugging`):
+- `Projects/Summarizer.py`: chunk + summarize pattern → Agent 3.
+- `Quantization.ipynb`: BitsAndBytes 4-bit loading → `bnb_config`.
+- PPTs (`Guardrails & Optimization`, `Evaluation & Debugging`):
   `guardrail_check`, `mask_pii`, `eval_log`, Dashboard, `tests/`.
 
 ## 5. Demo script for video (5 min)

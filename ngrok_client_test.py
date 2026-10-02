@@ -1,4 +1,4 @@
-# Run LOCAL against your Ngrok backend (Session 10: NGROK_Send_Prompt_Local)
+# Run LOCAL against your Ngrok backend (NGROK_Send_Prompt_Local)
 # YOU run this yourself after starting backend_api.py + ngrok.
 import requests
 

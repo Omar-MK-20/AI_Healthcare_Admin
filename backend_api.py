@@ -1,5 +1,5 @@
 # ============================================================
-# backend_api.py - Session 10 style: FastAPI backend + Ngrok deploy
+# backend_api.py - style: FastAPI backend + Ngrok deploy
 # YOU run this yourself:
 #   pip install fastapi uvicorn pyngrok
 #   python backend_api.py
