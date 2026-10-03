@@ -1,7 +1,10 @@
 # ============================================================
-# tests/test_evaluation.py - (Evaluation & Debugging)
+# tests/test_evaluation.py - fast suite, NO model needed.
+# Covers pure helpers: validators, policy, billing math, insurance lookup,
+# guardrails, PII, JSON, registration validation, formatters, tables.
+# LLM-driven orchestrator paths live in tests/test_llm_live.py
+# (needs the model loaded; skipped when unavailable).
 # YOU run this yourself:  python -m pytest tests/ -v
-# Tests run WITHOUT the LLM (offline-safe) using structured paths.
 # ============================================================
 import sys
 from pathlib import Path
@@ -10,8 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from app import (
     valid_date, valid_time, validate_policy, appointment_exists,
     billing_agent, insurance_agent, guardrail_check, mask_pii,
-    extract_json, add_patient, parse_booking_request, resolve_patient,
-    complete_booking, orchestrator, parse_natural_date, parse_natural_time,
+    extract_json, add_patient, resolve_patient, complete_booking,
 )
 
 def test_validators():
@@ -93,21 +95,6 @@ def test_add_patient_bad_insurance_id(tmp_path):
     ok, _ = add_patient("Bad Mail", "not-an-email", "None", "", "", csv_path=csv_path)
     assert ok is False
 
-def test_parse_booking_full_sentence():
-    p = parse_booking_request(
-        "Book Cardiology with Dr. Sara Mahmoud for Omar on 2026-10-15 at 9:00")
-    assert p["department"] == "Cardiology"
-    assert p["doctor"] == "Dr. Sara Mahmoud"
-    assert p["date"] == "2026-10-15"
-    assert p["time"] == "09:00"
-    assert p["patient_mention"] == "Omar"
-
-def test_parse_relative_datetime():
-    from datetime import date as _d, timedelta as _td
-    assert parse_natural_date("book for tomorrow") == (_d.today() + _td(days=1)).isoformat()
-    assert parse_natural_time("at 2:30pm") == "14:30"
-    assert parse_natural_time("at 9") == "09:00"
-
 def test_resolve_patient_fuzzy():
     status, pid, name, _ = resolve_patient("Farouk")
     assert status == "ok" and pid == "P-1003" and "Omar" in name
@@ -121,16 +108,16 @@ def test_resolve_patient_unknown():
     status, _, _, note = resolve_patient("Nobody Here")
     assert status == "notfound" and "Add Patient" in note
 
-def test_booking_example_gets_natural_reply_not_policy_dump():
-    # Regression test: the exact reported case. 9:00 is outside Cardiology
-    # hours, so it must refuse NATURALLY (with hours + alternative) —
-    # never dump the policy PDF. No LLM needed (deterministic route).
-    r = orchestrator("Book Cardiology with Dr. Sara Mahmoud for Omar Farouk on 2026-10-15 at 9:00")
+def test_complete_booking_policy_refusal_is_natural():
+    # Reported case shape: 9:00 is outside Cardiology hours. The shared
+    # pipeline (used after LLM extraction) must refuse NATURALLY with hours
+    # + alternative — never dump the policy PDF. No LLM needed (refusal path).
+    r = complete_booking("2026-10-15", "09:00", "Dr. Sara Mahmoud",
+                         "Cardiology", "P-1003", "Omar Farouk")
     assert "policy PDF" not in r
     assert "Can't book that slot" in r and "10:00" in r
 
-def test_report_words_dont_trigger_guardrail():
-    # "as prescribed by Dr…" inside a document is a mention, not a request.
+def test_report_words_dont_trigger_guardrail():    # "as prescribed by Dr…" inside a document is a mention, not a request.
     ok, _ = guardrail_check(
         "Current medication: Atorvastatin 20mg once daily (as prescribed by Dr. Sara Mahmoud).")
     assert ok is True
@@ -140,14 +127,6 @@ def test_genuine_prescription_requests_still_blocked():
     assert ok is False
     ok, _ = guardrail_check("What dosage should I take?")
     assert ok is False
-
-def test_summarize_report_not_blocked():
-    # The exact reported failure: summary request + full real report file.
-    # Must reach the SUMMARIZER (offline stub echoes JSON), never the
-    # guardrail block nor the booking route ("Almost there").
-    report = (Path(__file__).parent.parent / "data" / "sample_discharge.txt").read_text()
-    r = orchestrator("Summarize this discharge report: " + report)
-    assert "⛔" not in r and "🚨" not in r and "Almost there" not in r
 
 def test_billing_result_is_formatted_markdown():
     from app import format_billing_insurance

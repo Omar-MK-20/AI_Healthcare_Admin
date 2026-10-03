@@ -28,7 +28,8 @@ class SummarizeRequest(BaseModel):
 def startup():
     init_rag()
     # NOTE: model loading is lazy here so the API boots fast.
-    # Call /load_model on a GPU machine (Kaggle/Colab) before /book with LLM.
+    # Call /load_model before any other endpoint: offline mode is disabled,
+    # so /book, /summarize etc. refuse clearly until the LLM is loaded.
     print("RAG ready. Call /load_model to enable LLM.")
 
 @app.get("/health")

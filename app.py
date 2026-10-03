@@ -30,7 +30,7 @@ import re
 import csv
 import time
 from collections import deque
-from datetime import datetime, date, timedelta
+from datetime import datetime, date
 from pathlib import Path
 
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
@@ -137,8 +137,8 @@ bnb_config = BitsAndBytesConfig(
     bnb_4bit_compute_dtype=torch.float16,
 )
 
-tokenizer = None  # set by load_model(); None = offline mode
-model = None  # set by load_model(); None = offline mode
+tokenizer = None  # set by load_model(); None = not ready (app refuses LLM work)
+model = None  # set by load_model(); None = not ready (app refuses LLM work)
 model_device = "cpu"  # updated by load_model()
 
 def load_model():
@@ -217,14 +217,16 @@ def generate(prompt, max_new_tokens=120):
     gen = outputs[0][inputs.input_ids.shape[1]:]
     return tokenizer.decode(gen, skip_special_tokens=True).strip()
 
-# A safe offline fallback if model is not loaded (lets UI + tests run)
-def generate_safe(prompt, max_new_tokens=120):
-    """Like generate(), but returns a harmless '{"action": "none"}' JSON stub
-    when no model is loaded, so booking/billing/summarizer routes degrade
-    gracefully instead of crashing."""
-    if model is None or tokenizer is None:
-        return '{"action": "none"}'
-    return generate(prompt, max_new_tokens)
+# Offline mode is DISABLED: every agent runs on the LLM. If it isn't
+# loaded, the orchestrator refuses clearly instead of answering rule-based.
+MODEL_NOT_LOADED_MSG = (
+    "❌ The AI model isn't loaded yet — please wait for startup to finish "
+    "and try again. (Every agent in this system runs on the LLM.)"
+)
+
+def require_model():
+    """True when the LLM is loaded and ready to serve agent calls."""
+    return model is not None and tokenizer is not None
 
 # ---------------- Guardrails ----------------
 # Intent-based: only blocks REQUESTS for medical advice, not words merely
@@ -336,155 +338,10 @@ def validate_policy(data, context=""):
         return False, f"Unknown department: {dept}."
     return True, "OK"
 
-# ---------------- Natural Language Understanding -------------------
-# Deterministic parsers so chat feels natural and works fast — even with a
-# small model or no model at all. The LLM is only a fallback, never a blocker.
-WEEKDAYS = {"monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
-            "friday": 4, "saturday": 5, "sunday": 6}
-
-DEPT_KEYWORDS = {"cardiology": "Cardiology", "dermatology": "Dermatology",
-                 "orthopedics": "Orthopedics", "orthopedic": "Orthopedics",
-                 "check-up": "General", "checkup": "General", "check up": "General",
-                 "general": "General", "lab test": "Lab", "lab": "Lab"}
-
-_MENTION_STOPWORDS = {"me", "us", "today", "tomorrow", "checkup", "check-up",
-                      "general", "lab", "cardiology", "dermatology", "orthopedics"}
-
-def parse_natural_date(text):
-    """Extract a date from free text as YYYY-MM-DD.
-
-    Understands ISO dates ('2026-10-15'), 'today'/'tomorrow', and weekday
-    names ('Monday', 'next Friday' = the one in the following week).
-    Returns None when no date is mentioned.
-    """
-    low = text.lower()
-    m = re.search(r"\b(\d{4}-\d{2}-\d{2})\b", low)
-    if m:
-        return m.group(1)
-    today = date.today()
-    if re.search(r"\btomorrow\b", low):
-        return (today + timedelta(days=1)).isoformat()
-    if re.search(r"\btoday\b", low):
-        return today.isoformat()
-    m = re.search(r"\bnext\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b", low)
-    if m:
-        target = WEEKDAYS[m.group(1)]
-        days = (target - today.weekday()) % 7 + 7
-        return (today + timedelta(days=days)).isoformat()
-    m = re.search(r"\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b", low)
-    if m:
-        target = WEEKDAYS[m.group(1)]
-        days = (target - today.weekday()) % 7 or 7
-        return (today + timedelta(days=days)).isoformat()
-    return None
-
-def parse_natural_time(text):
-    """Extract a time from free text as 24-hour HH:MM.
-
-    Understands '14:30', '2:30pm', 'at 9am' and bare 'at 9'.
-    Returns None when no time is mentioned.
-    """
-    low = text.lower()
-    m = re.search(r"\b(\d{1,2}):(\d{2})\s*(am|pm)?\b", low)
-    if m:
-        h, mi, ap = int(m.group(1)), int(m.group(2)), m.group(3)
-        if ap == "pm" and h < 12:
-            h += 12
-        if ap == "am" and h == 12:
-            h = 0
-        if 0 <= h <= 23 and 0 <= mi <= 59:
-            return f"{h:02d}:{mi:02d}"
-        return None
-    m = re.search(r"\bat\s+(\d{1,2})\s*(am|pm)\b", low)
-    if m:
-        h, ap = int(m.group(1)), m.group(2)
-        if ap == "pm" and h < 12:
-            h += 12
-        if ap == "am" and h == 12:
-            h = 0
-        if 0 <= h <= 23:
-            return f"{h:02d}:00"
-        return None
-    m = re.search(r"\bat\s+(\d{1,2})\b", low)
-    if m and 0 <= int(m.group(1)) <= 23:
-        return f"{int(m.group(1)):02d}:00"
-    return None
-
-def find_doctor(text):
-    """Match a doctor mention to the canonical 'Dr. First Last' + department.
-
-    Tries full name, then 'Dr. <LastName>', then first name. Returns
-    (doctor_name_or_None, department_or_None); department comes from DOCTORS.
-    """
-    low = text.lower()
-    all_docs = [(dept, d) for dept, ds in DOCTORS.items()
-                for d in ds if d != "Lab Team"]
-    for dept, d in all_docs:  # full name mentioned
-        if d.lower() in low:
-            return d, dept
-    for dept, d in all_docs:  # "Dr. Mahmoud" style
-        last = d.split()[-1].lower()
-        if re.search(r"\bdr\.?\s+" + re.escape(last) + r"\b", low):
-            return d, dept
-    for dept, d in all_docs:  # first name mentioned
-        first = d.split()[1].lower()
-        if re.search(r"\b" + re.escape(first) + r"\b", low):
-            return d, dept
-    return None, None
-
-def find_department(text):
-    """Match a department keyword ('cardio…', 'checkup', 'lab test') canonically.
-
-    Longer keywords win ('lab test' beats 'lab'). Returns None if absent.
-    """
-    low = text.lower()
-    for kw in sorted(DEPT_KEYWORDS, key=len, reverse=True):
-        if re.search(r"\b" + re.escape(kw) + r"\b", low):
-            return DEPT_KEYWORDS[kw]
-    return None
-
-def extract_patient_mention(text):
-    """Pull the 'who' out of a booking sentence: a P-XXXX id or the name after
-    'for' ('…for Omar on 2026-10-15…' → 'Omar'). Ignores date/time words."""
-    m = re.search(r"\bP-\d+\b", text)
-    if m:
-        return m.group(0)
-    m = re.search(r"\bfor\s+([A-Za-z][A-Za-z .'\-]*?)(?=\s+on\b|\s+at\b|\s*,|\s*\d{4}-\d{2}-\d{2}|\s*$)",
-                  text, re.IGNORECASE)
-    if m:
-        mention = m.group(1).strip().strip(".,")
-        if mention.lower() not in _MENTION_STOPWORDS:
-            return mention
-    return None
-
-def parse_booking_request(text):
-    """Split a booking sentence into {date, time, doctor, department,
-    patient_mention} (None for anything not mentioned).
-
-    Fills gaps by inference: department from doctor and vice versa
-    ('Lab' always maps to 'Lab Team').
-    """
-    dept = find_department(text)
-    doc, doc_dept = find_doctor(text)
-    if dept is None and doc_dept:
-        dept = doc_dept  # infer department from the doctor
-    if doc is None and dept in DOCTORS and len(DOCTORS[dept]) == 1 and dept != "Lab":
-        doc = DOCTORS[dept][0]  # infer doctor from a unique department
-    if doc is None and dept == "Lab":
-        doc = "Lab Team"
-    return {"date": parse_natural_date(text),
-            "time": parse_natural_time(text),
-            "doctor": doc,
-            "department": dept,
-            "patient_mention": extract_patient_mention(text)}
-
-def booking_signals(parsed):
-    """Count how many booking fields were extracted (0–5).
-
-    The orchestrator treats 2+ signals as a booking attempt even without
-    trigger words like 'book'.
-    """
-    return sum(1 for v in parsed.values() if v)
+# NOTE: booking/understanding used to live in deterministic regex parsers here.
+# They were removed: every agent now runs through the LLM (offline mode is
+# disabled). Only safety (guardrails), policy validation, and DB lookups stay
+# rule-based. Patient-name matching lives in resolve_patient() below.
 
 def resolve_patient(mention, patient_hint="P-1001"):
     """Match a name/ID to the patient DB. Exact first, then fuzzy substring.
@@ -805,13 +662,16 @@ def print_scheduled_appointments():
 # ---------------- Prompt Builder -------------------
 def build_prompt(user_input, context):
     """Build the strict-JSON scheduling prompt: policy + retrieved context +
-    already-booked slots + the user request (LLM fallback path only)."""
+    already-booked slots + the user request (Agent 2 extraction via LLM)."""
     return f"""
 You are an AI hospital scheduling agent.
 
 Rules:
 - Read the hospital policy carefully.
 - Return ONLY valid JSON. No markdown. No explanations.
+- Resolve relative dates against today ({date.today().isoformat()}):
+  "tomorrow", weekday names ("Monday" = the next upcoming one), or YYYY-MM-DD.
+- Times may be "14:30", "2:30pm" or "at 9" — always output 24-hour "HH:MM".
 
 Departments: General, Cardiology, Dermatology, Orthopedics, Lab.
 Doctors: Dr. Ahmed Hassan (General), Dr. Sara Mahmoud (Cardiology),
@@ -823,7 +683,8 @@ Policy:
 - Lab Test: Mon-Sat 08:00-18:00.
 - Sunday: closed.
 
-If user wants to book, ALWAYS return:
+If the user wants to book AND all of date, time, doctor, department, patient
+are clear, ALWAYS return:
 {{
   "action":"schedule",
   "date":"YYYY-MM-DD",
@@ -831,6 +692,11 @@ If user wants to book, ALWAYS return:
   "doctor":"string",
   "department":"string",
   "patient":"string (name or P-XXXX)"
+}}
+If the user wants to book but something is missing or unclear, return:
+{{
+  "action":"incomplete",
+  "missing":["list the missing field names among date,time,doctor,department,patient"]
 }}
 Only return {{"action":"none"}} for greetings / general questions.
 
@@ -844,14 +710,28 @@ User:
 {user_input}
 """
 
+def answer_policy_qa(user_input, context):
+    """Agent 1 answering: respond from the retrieved PDF context via the LLM."""
+    if not context:
+        return ("I don't have the hospital policy loaded right now, so I "
+                "can't answer that. Please try again in a moment.")
+    return mask_pii(generate(
+        "Answer the question in 2-4 sentences using ONLY the hospital policy "
+        "below. If the policy doesn't cover it, say so briefly. "
+        "No markdown code fences, no diagnosis.\n\n"
+        f"Policy:\n{context[:1500]}\n\nQuestion:\n{user_input}",
+        max_new_tokens=200))
+
 # ---------------- Main Orchestrator Agent ----------------------------
 def orchestrator(user_input, patient_hint="P-1001", mode="auto"):
-    """Route one user message to the right agent(s) and return the reply.
+    """Route one user message to the right LLM-driven agent(s) and return the reply.
 
-    Order: guardrails (except for summaries) → registration → summarizer →
-    natural booking → billing/insurance → RAG + LLM fallback. Every turn is
-    appended to memory and timed into eval_log. patient_hint supplies the
-    default patient when none is named; mode forces a route for tab calls.
+    Every agent (RAG answer, scheduler extraction, summarizer, billing,
+    insurance, registration) runs through the LLM — offline mode is disabled.
+    Rule-based code remains only for safety (guardrails), policy validation
+    (validators), and database lookups (CSV reads). Every turn is appended
+    to memory and timed into eval_log. patient_hint supplies the default
+    patient when none is named; mode forces a route for tab calls.
     """
     t0 = time.time()
     low = user_input.lower()
@@ -863,6 +743,11 @@ def orchestrator(user_input, patient_hint="P-1001", mode="auto"):
             eval_log.append({"task": "guardrail", "ok": False, "latency_s": 0, "note": "blocked"})
             memory.append({"user": user_input, "assistant": block_msg})
             return block_msg
+
+    # Offline mode is disabled: refuse clearly instead of answering rule-based.
+    if not require_model():
+        memory.append({"user": user_input, "assistant": MODEL_NOT_LOADED_MSG})
+        return MODEL_NOT_LOADED_MSG
 
     # Route: patient registration
     if any(k in low for k in ["add patient", "register patient", "new patient",
@@ -876,7 +761,7 @@ def orchestrator(user_input, patient_hint="P-1001", mode="auto"):
             'If name or email is missing return exactly: {"action": "need_details"}\n\n'
             f"Request:\n{user_input}"
         )
-        data = extract_json(generate_safe(prompt))
+        data = extract_json(generate(prompt))
         if not data or data.get("action") == "need_details" or not data.get("full_name") or not data.get("email"):
             resp = ("📝 To register a patient I need at least **full name and email**.\n"
                     "Example: 'Add patient Laila Hassan, email laila.h@example.com, "
@@ -900,82 +785,129 @@ def orchestrator(user_input, patient_hint="P-1001", mode="auto"):
         prompt = (f"Summarize this medical report in 3-5 short bullet points, plain language. "
                   f"Do NOT diagnose or prescribe. Copy medication exactly. "
                   f"End with: 'This is an administrative summary, not medical advice.'\n\n{report_text[:2000]}")
-        raw = generate_safe(prompt, max_new_tokens=200)
-        resp = mask_pii(raw if raw else "Summary unavailable (model not loaded).")
+        raw = generate(prompt, max_new_tokens=200)
+        resp = mask_pii(raw if raw else "❌ The model returned an empty summary. Please try again.")
         eval_log.append({"task": "summarize", "ok": True,
                          "latency_s": round(time.time()-t0, 2), "note": "summarizer"})
         memory.append({"user": user_input, "assistant": resp})
         return resp
 
-    # Route: natural booking (deterministic parser — fast, works with or without LLM).
-    # Falls through to the LLM path below only when details are missing AND a model is loaded.
-    parsed = parse_booking_request(user_input)
+    # Route: booking — Agent 2 extracts structured fields via the LLM, then
+    # validators + policy + collision + billing/insurance pipeline run on them.
     if (any(k in low for k in ["book", "appointment", "schedule", "reserve"])
-            or booking_signals(parsed) >= 2):
-        missing = [k for k in ("doctor", "department", "date", "time") if not parsed[k]]
-        status, pid, pname, note = resolve_patient(parsed["patient_mention"], patient_hint)
-        resp, ok_flag = None, None
-        if status != "ok":
-            resp, ok_flag = note, False
-        elif missing and model is None:
+            or mode == "schedule"):
+        docs = retriever.invoke(user_input) if retriever else []
+        context = docs[0].page_content if docs else ""
+        data = extract_json(generate(build_prompt(user_input, context)))
+        if not data:
+            resp = ("❌ I couldn't understand that booking request. Please use the "
+                    "📅 Book Appointment tab with explicit date, time, doctor and patient.")
+            ok_flag = False
+        elif data.get("action") == "incomplete":
+            missing = data.get("missing") or ["details"]
             resp = ("Almost there! I still need: " + ", ".join(missing) + ".\n"
                     "Example: 'Book General Checkup with Dr. Ahmed Hassan for P-1002 "
                     "on 2026-10-12 at 10:00'.")
             ok_flag = False
-        elif not missing:
-            resp = complete_booking(parsed["date"], parsed["time"], parsed["doctor"],
-                                    parsed["department"], pid, pname)
-            ok_flag = resp.startswith("✅")
-        if resp is not None:
-            eval_log.append({"task": "schedule", "ok": ok_flag,
-                             "latency_s": round(time.time() - t0, 2), "note": "natural"})
-            memory.append({"user": user_input, "assistant": resp})
-            return mask_pii(resp)
+        elif data.get("action") != "schedule":
+            resp = ("📝 That doesn't look like a booking request. Tell me the department, "
+                    "doctor, patient, date and time — e.g. 'Book Cardiology with "
+                    "Dr. Sara Mahmoud for P-1001 on 2026-10-13 at 11:00'.")
+            ok_flag = False
+        else:
+            status, pid, pname, note = resolve_patient(data.get("patient", patient_hint),
+                                                       patient_hint)
+            if status != "ok":
+                resp, ok_flag = note, False
+            else:
+                resp = complete_booking(data.get("date", ""), data.get("time", ""),
+                                        data.get("doctor") or "Dr. Ahmed Hassan",
+                                        data.get("department") or "General",
+                                        pid, pname)
+                ok_flag = resp.startswith("✅")
+        eval_log.append({"task": "schedule", "ok": ok_flag,
+                         "latency_s": round(time.time() - t0, 2), "note": "llm"})
+        memory.append({"user": user_input, "assistant": resp})
+        return mask_pii(resp)
 
-    # Route: billing / insurance quick lookup
+    # Route: billing / insurance (Agents 4+5) — the LLM interprets the
+    # question and composes the answer; prices/patients stay grounded in
+    # the CSV lookups (never hallucinated by the model).
     if mode in ("billing", "insurance") or any(k in low for k in ["price", "cost", "bill", "insurance", "claim", "cover", "how much", "pay", "fee", "charge"]):
-        ins = insurance_agent(patient_hint)
-        ins_type = ins.get("insurance_type", "None")
-        svc = "Specialist Visit" if any(k in low for k in ["specialist", "cardio", "derma", "ortho"]) else (
-            "Lab Test" if "lab" in low else "General Checkup")
-        bill = billing_agent(svc, ins_type)
-        resp = mask_pii(format_billing_insurance(bill, ins))
-        eval_log.append({"task": mode, "ok": True,
+        looked = extract_json(generate(
+            "Extract billing lookup fields from the question below. "
+            "Return ONLY valid JSON, no markdown, no explanations.\n"
+            '{"service": "General Checkup|Specialist Visit|Lab Test", '
+            '"patient": "name or P-XXXX as written, or empty string if none"}\n\n'
+            f"Question:\n{user_input}"))
+        svc = (looked.get("service") if looked else None) or "General Checkup"
+        if svc not in ("General Checkup", "Specialist Visit", "Lab Test"):
+            svc = ("Specialist Visit"
+                   if any(k in low for k in ["specialist", "cardio", "derma", "ortho"]) else
+                   "Lab Test" if "lab" in low else "General Checkup")
+        who = (looked.get("patient") if looked else None) or patient_hint
+        status, pid, pname, note = resolve_patient(who, patient_hint)
+        if status != "ok":
+            resp, ok_flag = note, False
+        else:
+            ins = insurance_agent(pid)
+            bill = billing_agent(svc, ins.get("insurance_type", "None"))
+            facts = (f"Service: {svc}. Base price: {bill['base']} EGP. "
+                     f"Patient pays: {bill['patient_pays']} EGP. Coverage note: {bill['note']}. "
+                     f"Patient: {pname} ({pid}). "
+                     f"Insurance: {ins.get('insurance_type')} ({ins.get('insurance_id')}).")
+            resp = mask_pii(generate(
+                "You are a hospital billing assistant. Turn these VERIFIED facts into "
+                "a short friendly Markdown reply with a 💳 Billing section and a "
+                "🛡 Insurance section. Use ONLY these facts, no markdown code fences, "
+                "no diagnosis, no extra numbers.\n\nFacts:\n" + facts,
+                max_new_tokens=200))
+            ok_flag = True
+        eval_log.append({"task": mode, "ok": ok_flag,
                          "latency_s": round(time.time()-t0, 2), "note": svc})
         memory.append({"user": user_input, "assistant": resp})
         return resp
 
-    # Default route: Agent 1 (RAG) -> Agent 2 (Scheduler) -> Agents 4+5 -> email/report
+    # Default route: Agent 1 (RAG) answers via the LLM, Agent 2 (Scheduler)
+    # extracts via the LLM — then Agents 4+5 pipeline runs on the result.
     docs = retriever.invoke(user_input) if retriever else []
     context = docs[0].page_content if docs else ""
     prompt = build_prompt(user_input, context)
-    raw = generate_safe(prompt)
+    raw = generate(prompt)
     data = extract_json(raw)
 
     if not data:
-        response = "❌ Failed to extract JSON (is the model loaded?). Try the Booking tab with structured fields."
+        response = ("❌ I couldn't understand that request. Try the structured tabs "
+                    "(📅 Book, ➕ Add Patient, 💳 Billing) with explicit details.")
         eval_log.append({"task": "schedule", "ok": False,
                          "latency_s": round(time.time()-t0, 2), "note": "json fail"})
     elif data.get("action") == "none":
-        # Pure policy Q&A: answer from retrieved context
-        response = (context[:800] + "\n\n(This answer comes from the hospital policy PDF.)") if context else "No action needed."
+        # Pure policy Q&A: Agent 1 answers from the retrieved PDF context.
+        response = answer_policy_qa(user_input, context)
         eval_log.append({"task": "qa", "ok": True,
                          "latency_s": round(time.time()-t0, 2), "note": "policy qa"})
     else:
-        # LLM-extracted booking -> same natural pipeline (fuzzy patient + validation)
-        status, pid, pname, note = resolve_patient(data.get("patient", patient_hint),
-                                                   patient_hint)
-        if status != "ok":
-            response = note
-            eval_log.append({"task": "schedule", "ok": False,
-                             "latency_s": round(time.time()-t0, 2), "note": "patient"})
+        # LLM-extracted booking -> pipeline, but only when the extraction is
+        # complete: "schedule" with missing date/time, or "incomplete", means
+        # the model misread a Q&A question -> answer it as Q&A instead.
+        if data.get("action") != "schedule" or not (data.get("date") and data.get("time")):
+            response = answer_policy_qa(user_input, context)
+            eval_log.append({"task": "qa", "ok": True,
+                             "latency_s": round(time.time()-t0, 2), "note": "policy qa"})
         else:
-            response = complete_booking(data.get("date", ""), data.get("time", ""),
-                                        data.get("doctor") or "Dr. Ahmed Hassan",
-                                        data.get("department") or "General",
-                                        pid, pname)
-            eval_log.append({"task": "schedule", "ok": response.startswith("✅"),
-                             "latency_s": round(time.time()-t0, 2), "note": "llm pipeline"})
+            status, pid, pname, note = resolve_patient(data.get("patient", patient_hint),
+                                                       patient_hint)
+            if status != "ok":
+                response = note
+                eval_log.append({"task": "schedule", "ok": False,
+                                 "latency_s": round(time.time()-t0, 2), "note": "patient"})
+            else:
+                response = complete_booking(data.get("date", ""), data.get("time", ""),
+                                            data.get("doctor") or "Dr. Ahmed Hassan",
+                                            data.get("department") or "General",
+                                            pid, pname)
+                eval_log.append({"task": "schedule", "ok": response.startswith("✅"),
+                                 "latency_s": round(time.time()-t0, 2), "note": "llm pipeline"})
 
     memory.append({"user": user_input, "assistant": response})
     print_chat_history(user_input, context, data, response)
@@ -1127,9 +1059,7 @@ def build_ui():
 
 if __name__ == "__main__":
     init_rag()
-    try:
-        load_model()  # GPU (4-bit) or CPU (full weights) — always attempted, never skipped
-    except Exception as e:
-        print("Model load failed (offline mode: billing/insurance/guardrails still work):", e)
+    # Offline mode is disabled: the model MUST load or the app won't start.
+    load_model()  # GPU (4-bit) or CPU (full weights)
     demo = build_ui()
     demo.launch(share=True)

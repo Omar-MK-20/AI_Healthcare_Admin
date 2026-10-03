@@ -9,17 +9,14 @@ User input
 GUARDRAILS (emergency redirect, no-diagnosis, PII mask)   
    │
    ▼
-ORCHESTRATOR (router)
-   ├── Booking ──► deterministic NL parser (dept/doctor/date/time/patient, no LLM needed)
-   │                → fuzzy patient match → policy/billing/booking → natural reply
-   │                → falls back to LLM JSON only when details are missing
-   ├── Policy Q&A ──► Agent 1 RAG (PDF → FAISS/MiniLM → context) ──► answer + citation
-   ├── Booking ──► Agent 1 context → LLM JSON → valid_date/time → validate_policy
-   │                → Agent 5 Insurance (patients.csv) ┐ parallel
-   │                → Agent 4 Billing (billing.csv)    ┘
+ORCHESTRATOR (router — every route calls the LLM; offline mode disabled)
+   ├── Booking ──► LLM extracts JSON → fuzzy patient match → validators/policy
+   │                → Agent 5 Insurance (patients.csv) + Agent 4 Billing (billing.csv)
    │                → collision check → book → email + report (outbox/)
-   ├── Summarize ──► Agent 3 (3-5 bullets + disclaimer + mask_pii)
-   └── Billing/Insurance only ──► Agents 4+5 direct lookup
+   ├── Policy Q&A ──► Agent 1 RAG (PDF → FAISS/MiniLM → context) ──► LLM answers
+   ├── Summarize ──► Agent 3 LLM (3-5 bullets + disclaimer + mask_pii)
+   ├── Billing/Insurance ──► LLM extracts service+patient → CSV lookups → LLM composes reply
+   └── Registration ──► LLM extracts fields → validated CSV append
    │
    ▼
 MEMORY (deque maxlen=6) + EVAL LOG (task, ok, latency) → Dashboard
@@ -58,6 +55,6 @@ Swap CSV reads for `gspread` / SQL / REST without changing agent interfaces.
 
 ## Evaluation (Evaluation & Debugging)
 
-- `tests/test_evaluation.py` (11 tests, offline-safe): validators, policy,
+- `tests/test_evaluation.py` (fast, no model): validators, policy,
   billing, insurance, guardrails, PII, JSON, seed collision.
 - Runtime `eval_log`: success rate, avg latency in Dashboard tab.

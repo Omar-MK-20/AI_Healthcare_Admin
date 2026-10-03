@@ -52,13 +52,13 @@ and `### 🛡 Insurance` with `✅ verified`, `Basic (INS-1002)`, `Mariam Adel (
 **Input:** `Summarize this discharge report: ` + contents of `data/sample_discharge.txt`
 **Expected:** 3–5 short bullets, medication copied exactly, ends with `This is an administrative summary, not medical advice.` National ID masked (`**********4567`).
 
-## 9. Register a new patient (➕ Add Patient tab — no model needed)
+## 9. Register a new patient (➕ Add Patient tab — form validation, no model needed for the tab; chat registration uses the LLM)
 Fill: name `Nour El-Din`, email `nour.e@example.com`, insurance `Basic`, ID `INS-1010`, phone `01009998888` → Register.
 **Expected:** `✅ Patient registered! ID: P-1008 …` (next free ID).
 Then in chat: `How much for a Lab Test?` as `P-1008` → `patient_pays: 0`, Basic covers in full.
 **Duplicate check:** register the same email again → `❌ A patient with email nour.e@example.com already exists.`
 
-## 10. Guardrails (no model needed)
+## 10. Guardrails (work even before the model finishes loading)
 **Input:** `Can you prescribe me a dosage for my headache?`
 **Expected:** `⛔ I can't provide diagnosis or prescriptions/dosages…`
 **Input:** `I have severe bleeding, what should I do?`
@@ -70,6 +70,8 @@ Open **📊 Evaluation Dashboard** → Refresh.
 
 ## Automated suite (same logic, no GUI)
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests/ -v
+.\.venv\Scripts\python.exe -m pytest tests/test_evaluation.py -v   # fast, no model
+.\.venv\Scripts\python.exe -m pytest tests/test_llm_live.py -v      # needs model (slow on CPU)
 ```
-**Expected:** `20 passed` — includes a regression test of case 2 above.
+**Expected:** fast suite `23 passed`; live suite `5 passed` — including LLM
+end-to-end of cases 2, 6, 7, 8 above plus chat registration.

@@ -1,0 +1,8 @@
+To: john.samir@example.com
+Subject: Appointment Confirmed
+
+Dear John Samir,
+Your appointment is confirmed:
+{'appointment_id': 'A-0004', 'patient_id': 'P-1001', 'date': '2026-10-12', 'time': '10:00', 'doctor': 'Dr. Ahmed Hassan', 'department': 'General', 'status': 'confirmed'}
+Billing: {'service': 'General Checkup', 'base': 300, 'patient_pays': 0, 'note': 'Premium coverage applied.'}
+Insurance: Premium
